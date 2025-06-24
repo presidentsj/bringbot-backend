@@ -5,39 +5,41 @@ import fitz  # PyMuPDF
 import os
 
 app = Flask(__name__)
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Configuration : à remplacer par ta propre clé API
-openai.api_key = "VOTRE_CLE_API_ICI"
+# Charger et indexer le contenu PDF
+def extraire_texte_du_pdf(fichier_pdf):
+    doc = fitz.open(fichier_pdf)
+    contenu = ""
+    for page in doc:
+        contenu += page.get_text()
+    return contenu
 
-# Lecture du contenu PDF à intégrer
-def extract_pdf_content(pdf_path):
-    content = ""
-    try:
-        with fitz.open(pdf_path) as doc:
-            for page in doc:
-                content += page.get_text()
-        return content[:3000]  # Limiter à 3000 caractères pour éviter surcharge
-    except Exception as e:
-        return f"Erreur de lecture PDF : {e}"
-
-PDF_KNOWLEDGE = extract_pdf_content("catalogue_bring_negoce.pdf")
+pdf_texte = extraire_texte_du_pdf("catalogue_bring_negoce.pdf")
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    user_input = request.json.get("message", "")
+    data = request.get_json()
+    message = data.get("message", "")
+
+    if not message:
+        return jsonify({"reply": "Message vide reçu."}), 400
 
     try:
-        response = openai.ChatCompletion.create(
+        prompt = f"Voici un extrait d'un catalogue de matériaux :\n{pdf_texte[:2000]}\n\nQuestion : {message}\nRéponse :"
+        completion = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": f"Tu es l'assistant de Bring Négoce. Tu utilises les informations suivantes extraites du catalogue PDF pour aider les visiteurs :\n{PDF_KNOWLEDGE}"},
-                {"role": "user", "content": user_input}
-            ]
+                {"role": "system", "content": "Tu es un assistant commercial spécialisé dans la vente de matériaux de construction. Réponds aux questions en t'appuyant sur le catalogue fourni."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500,
+            temperature=0.4
         )
-        reply = response.choices[0].message["content"]
-        return jsonify({"reply": reply})
+        reponse = completion.choices[0].message["content"].strip()
+        return jsonify({"reply": reponse})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"reply": f"[Erreur serveur] {str(e)}"}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=10000)
